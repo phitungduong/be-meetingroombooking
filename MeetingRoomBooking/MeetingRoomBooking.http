@@ -1,0 +1,6 @@
+@MeetingRoomBooking_HostAddress = http://localhost:5177
+
+GET {{MeetingRoomBooking_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
