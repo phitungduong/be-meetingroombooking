@@ -267,3 +267,4 @@ C:\Users\angular\MeetingRoomBooking\MeetingRoomBooking\obj\Debug\net8.0\refint\M
 C:\Users\angular\MeetingRoomBooking\MeetingRoomBooking\obj\Debug\net8.0\MeetingRoomBooking.pdb
 C:\Users\angular\MeetingRoomBooking\MeetingRoomBooking\obj\Debug\net8.0\MeetingRoomBooking.genruntimeconfig.cache
 C:\Users\angular\MeetingRoomBooking\MeetingRoomBooking\obj\Debug\net8.0\ref\MeetingRoomBooking.dll
+C:\Users\angular\MeetingRoomBooking\MeetingRoomBooking\obj\Debug\net8.0\MeetingRoomBooking.sourcelink.json

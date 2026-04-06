@@ -8,6 +8,7 @@ using System.Security.Claims;
 using System.Text;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
+using System.Security.Cryptography;
 
 namespace MeetingRoomBooking.Controllers
 {
@@ -18,7 +19,14 @@ namespace MeetingRoomBooking.Controllers
         private readonly UserManager<ApplicationUser> _userManager;
         private readonly SignInManager<ApplicationUser> _signInManager;
         private readonly IConfiguration _configuration;
+        private string GenerateRefreshToken()
+        {
+            var randomBytes = new byte[64];
+            using var rng = RandomNumberGenerator.Create();
+            rng.GetBytes(randomBytes);
 
+            return Convert.ToBase64String(randomBytes);
+        }
         public AuthController(
             UserManager<ApplicationUser> userManager,
             SignInManager<ApplicationUser> signInManager,
@@ -199,18 +207,14 @@ namespace MeetingRoomBooking.Controllers
             });
         }
 
-        // LOGIN
-        [HttpPost("login")]
-        public async Task<IActionResult> Login(LoginDTO model)
+        //refresh token 
+        [HttpPost("refresh-token")]
+        public async Task<IActionResult> RefreshToken(TokenDTO dto)
         {
-            var user = await _userManager.FindByNameAsync(model.UserName);
+            var user = _userManager.Users
+                .FirstOrDefault(x => x.RefreshToken == dto.RefreshToken);
 
-            if (user == null)
-                return Unauthorized();
-
-            var result = await _signInManager.CheckPasswordSignInAsync(user, model.Password, false);
-
-            if (!result.Succeeded)
+            if (user == null || user.RefreshTokenExpiryTime < DateTime.Now)
                 return Unauthorized();
 
             var roles = await _userManager.GetRolesAsync(user);
@@ -232,6 +236,68 @@ namespace MeetingRoomBooking.Controllers
 
             var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
+            var newToken = new JwtSecurityToken(
+                issuer: _configuration["Jwt:Issuer"],
+                audience: _configuration["Jwt:Audience"],
+                claims: claims,
+                expires: DateTime.Now.AddMinutes(60),
+                signingCredentials: creds
+            );
+
+            var newAccessToken = new JwtSecurityTokenHandler().WriteToken(newToken);
+            var newRefreshToken = GenerateRefreshToken();
+
+            user.RefreshToken = newRefreshToken;
+            user.RefreshTokenExpiryTime = DateTime.Now.AddDays(7);
+
+            await _userManager.UpdateAsync(user);
+
+            return Ok(new
+            {
+                accessToken = newAccessToken,
+                refreshToken = newRefreshToken
+            });
+        }
+
+        // LOGIN
+        [HttpPost("login")]
+        public async Task<IActionResult> Login(LoginDTO model)
+        {
+            // 1️⃣ tìm user
+            var user = await _userManager.FindByNameAsync(model.UserName);
+
+            if (user == null)
+                return Unauthorized();
+
+            // 2️⃣ check password
+            var result = await _signInManager.CheckPasswordSignInAsync(user, model.Password, false);
+
+            if (!result.Succeeded)
+                return Unauthorized();
+
+            // 3️⃣ lấy role
+            var roles = await _userManager.GetRolesAsync(user);
+
+            // 4️⃣ tạo claims
+            var claims = new List<Claim>
+    {
+        new Claim(ClaimTypes.NameIdentifier, user.Id),
+        new Claim(ClaimTypes.Email, user.Email),
+        new Claim(ClaimTypes.Name, user.FullName)
+    };
+
+            foreach (var role in roles)
+            {
+                claims.Add(new Claim(ClaimTypes.Role, role));
+            }
+
+            // 5️⃣ tạo key + creds
+            var key = new SymmetricSecurityKey(
+                Encoding.UTF8.GetBytes(_configuration["Jwt:Key"]));
+
+            var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+
+            // 6️⃣ tạo token
             var token = new JwtSecurityToken(
                 issuer: _configuration["Jwt:Issuer"],
                 audience: _configuration["Jwt:Audience"],
@@ -240,9 +306,22 @@ namespace MeetingRoomBooking.Controllers
                 signingCredentials: creds
             );
 
+            var accessToken = new JwtSecurityTokenHandler().WriteToken(token);
+
+            // 7️⃣ tạo refresh token
+            var refreshToken = GenerateRefreshToken();
+
+            // 8️⃣ lưu DB
+            user.RefreshToken = refreshToken;
+            user.RefreshTokenExpiryTime = DateTime.Now.AddDays(7);
+
+            await _userManager.UpdateAsync(user);
+
+            // 9️⃣ trả về
             return Ok(new
             {
-                token = new JwtSecurityTokenHandler().WriteToken(token)
+                accessToken,
+                refreshToken
             });
         }
     }
