@@ -156,6 +156,9 @@ namespace MeetingRoomBooking.Controllers
         [HttpPost]
         public async Task<IActionResult> PostBooking(CreateBookingDto dto)
         {
+            using var transaction = await _context.Database
+                .BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
+
             var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
             var now = DateTime.Now;
             var today = now.Date;
@@ -163,10 +166,9 @@ namespace MeetingRoomBooking.Controllers
             if (userId == null)
                 return Unauthorized(ApiResponseHelper.Fail<string>("User not found"));
 
-            // ✅ ép LOCAL
             var start = dto.StartTime.Kind == DateTimeKind.Utc
-    ? dto.StartTime.ToLocalTime()
-    : DateTime.SpecifyKind(dto.StartTime, DateTimeKind.Local);
+                ? dto.StartTime.ToLocalTime()
+                : DateTime.SpecifyKind(dto.StartTime, DateTimeKind.Local);
 
             var end = dto.EndTime.Kind == DateTimeKind.Utc
                 ? dto.EndTime.ToLocalTime()
@@ -206,14 +208,23 @@ namespace MeetingRoomBooking.Controllers
             {
                 MeetingRoomId = dto.MeetingRoomId,
                 UserId = userId,
-                StartTime = start,   // ✅ local
-                EndTime = end,       // ✅ local
+                StartTime = start,
+                EndTime = end,
                 Status = "Booked",
                 CreatedAt = DateTime.Now
             };
 
             _context.Bookings.Add(booking);
-            await _context.SaveChangesAsync();
+
+            try
+            {
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+            }
+            catch (DbUpdateException)
+            {
+                return BadRequest(ApiResponseHelper.Fail<string>("Slot đã bị người khác đặt trước"));
+            }
 
             return Ok(ApiResponseHelper.Success(booking, "Booking created successfully"));
         }

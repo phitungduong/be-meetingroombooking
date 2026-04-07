@@ -261,10 +261,10 @@ C:\Users\angular\MeetingRoomBooking\MeetingRoomBooking\obj\Debug\net8.0\staticwe
 C:\Users\angular\MeetingRoomBooking\MeetingRoomBooking\obj\Debug\net8.0\staticwebassets\msbuild.buildTransitive.MeetingRoomBooking.props
 C:\Users\angular\MeetingRoomBooking\MeetingRoomBooking\obj\Debug\net8.0\staticwebassets.pack.json
 C:\Users\angular\MeetingRoomBooking\MeetingRoomBooking\obj\Debug\net8.0\scopedcss\bundle\MeetingRoomBooking.styles.css
-C:\Users\angular\MeetingRoomBooking\MeetingRoomBooking\obj\Debug\net8.0\MeetingRoomBooking.csproj.CopyComplete
 C:\Users\angular\MeetingRoomBooking\MeetingRoomBooking\obj\Debug\net8.0\MeetingRoomBooking.dll
 C:\Users\angular\MeetingRoomBooking\MeetingRoomBooking\obj\Debug\net8.0\refint\MeetingRoomBooking.dll
 C:\Users\angular\MeetingRoomBooking\MeetingRoomBooking\obj\Debug\net8.0\MeetingRoomBooking.pdb
 C:\Users\angular\MeetingRoomBooking\MeetingRoomBooking\obj\Debug\net8.0\MeetingRoomBooking.genruntimeconfig.cache
 C:\Users\angular\MeetingRoomBooking\MeetingRoomBooking\obj\Debug\net8.0\ref\MeetingRoomBooking.dll
 C:\Users\angular\MeetingRoomBooking\MeetingRoomBooking\obj\Debug\net8.0\MeetingRoomBooking.sourcelink.json
+C:\Users\angular\MeetingRoomBooking\MeetingRoomBooking\obj\Debug\net8.0\MeetingRoomBooking.csproj.CopyComplete
