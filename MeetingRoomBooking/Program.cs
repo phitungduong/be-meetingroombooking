@@ -9,6 +9,7 @@ using System.Text;
 using System.Security.Claims;
 using Microsoft.OpenApi.Models;
 
+
 namespace MeetingRoomBooking
 {
     public class Program
@@ -26,6 +27,8 @@ namespace MeetingRoomBooking
             builder.Services.AddDbContext<AppDbContext>(options =>
                 options.UseSqlServer(
                     builder.Configuration.GetConnectionString("DefaultConnection")));
+
+            
 
             // Identity
             builder.Services.AddIdentity<ApplicationUser, IdentityRole>()
