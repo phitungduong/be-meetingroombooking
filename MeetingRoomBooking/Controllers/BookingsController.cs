@@ -243,7 +243,7 @@ namespace MeetingRoomBooking.Controllers
             return Ok(ApiResponseHelper.Success(bookings, "Booking created successfully"));
         }
 
-        // GET bookings by room
+        // GET bookings by 1 room 
         [HttpGet("room")]
         [Authorize]
         public async Task<ActionResult> GetBookingsByRoomAndDate(int roomId, DateTime date)
@@ -271,6 +271,61 @@ namespace MeetingRoomBooking.Controllers
                 .ToListAsync();
 
             return Ok(bookings);
+        }
+        // get booking nhiều room 
+        [HttpGet("rooms")]
+        [Authorize]
+        public async Task<IActionResult> GetBookingsByRooms(
+    [FromQuery] List<int> roomIds,
+    [FromQuery] DateTime date)
+        {
+            if (roomIds == null || !roomIds.Any())
+                return BadRequest("roomIds is required");
+
+            var startOfDay = date.Date;
+            var endOfDay = startOfDay.AddDays(1);
+
+            // 👉 load rooms để lấy buffer
+            var rooms = await _context.MeetingRooms
+                .Where(r => roomIds.Contains(r.Id))
+                .ToListAsync();
+
+            // 👉 map buffer theo room
+            var roomBufferMap = rooms.ToDictionary(r => r.Id, r => r.BufferMinutes);
+
+            var bookings = await _context.Bookings
+                .Include(b => b.MeetingRoom)
+                .Where(b => roomIds.Contains(b.MeetingRoomId) &&
+                            b.StartTime >= startOfDay &&
+                            b.StartTime < endOfDay &&
+                            b.Status != "Cancelled")
+                .Select(b => new
+                {
+                    b.MeetingRoomId,
+                    StartTime = b.StartTime,
+                    EndTime = b.EndTime,
+                    Buffer = b.MeetingRoom.BufferMinutes,
+                    Location = b.MeetingRoom.Location,
+                    Capacity = b.MeetingRoom.Capacity
+                })
+                .ToListAsync();
+
+            // 👉 APPLY BUFFER SAU (quan trọng)
+            var result = bookings.Select(b =>
+            {
+                var buffer = b.Buffer;
+
+                return new
+                {
+                    b.MeetingRoomId,
+                    StartTime = b.StartTime.AddMinutes(-buffer),
+                    EndTime = b.EndTime.AddMinutes(buffer),
+                    b.Location,
+                    b.Capacity
+                };
+            });
+
+            return Ok(result);
         }
 
         // GET by date
