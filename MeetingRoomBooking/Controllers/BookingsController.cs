@@ -91,7 +91,7 @@ namespace MeetingRoomBooking.Controllers
                     roomName = b.MeetingRoom.Name,
                     capacity = b.MeetingRoom.Capacity,
                     email = b.User.Email,
-                    username = b.User.UserName,
+                    fullName = b.User.FullName,
                     startTime = b.StartTime,
                     endTime = b.EndTime,
                     location = b.MeetingRoom.Location
@@ -107,7 +107,7 @@ namespace MeetingRoomBooking.Controllers
                     roomName = b.MeetingRoom.Name,
                     capacity = b.MeetingRoom.Capacity,
                     email = b.User.Email,
-                    username = b.User.UserName,
+                    fullName = b.User.FullName,
                     startTime = b.StartTime,
                     endTime = b.EndTime,
                     location = b.MeetingRoom.Location
@@ -123,7 +123,7 @@ namespace MeetingRoomBooking.Controllers
                     roomName = b.MeetingRoom.Name,
                     capacity = b.MeetingRoom.Capacity,
                     email = b.User.Email,
-                    username = b.User.UserName,
+                    fullName = b.User.FullName,
                     startTime = b.StartTime,
                     endTime = b.EndTime,
                     location = b.MeetingRoom.Location
@@ -224,7 +224,7 @@ namespace MeetingRoomBooking.Controllers
                 UserId = userId,
                 StartTime = start,
                 EndTime = end,
-                Status = "Booked",
+                Status = "Pending",
                 CreatedAt = DateTime.Now
             }).ToList();
 
@@ -246,7 +246,7 @@ namespace MeetingRoomBooking.Controllers
         // GET bookings by 1 room 
         [HttpGet("room")]
         [Authorize]
-        public async Task<ActionResult> GetBookingsByRoomAndDate(int roomId, DateTime date)
+        public async Task<ActionResult> GetBookingsByRoomAndDate(int roomId, DateTime date, int? bookingId)
         {
             var room = await _context.MeetingRooms.FirstAsync(r => r.Id == roomId);
             var buffer = room.BufferMinutes;
@@ -259,7 +259,8 @@ namespace MeetingRoomBooking.Controllers
                 .Where(b => b.MeetingRoomId == roomId &&
                             b.StartTime >= startOfDay &&
                             b.StartTime < endOfDay &&
-                            b.Status != "Cancelled")
+                            b.Status == "Booked" && // ✅ chỉ block booking đã duyệt
+                            (!bookingId.HasValue || b.Id != bookingId)) // ✅ loại chính nó
                 .Select(b => new
                 {
                     StartTime = b.StartTime.AddMinutes(-buffer),
@@ -277,52 +278,37 @@ namespace MeetingRoomBooking.Controllers
         [Authorize]
         public async Task<IActionResult> GetBookingsByRooms(
     [FromQuery] List<int> roomIds,
-    [FromQuery] DateTime date)
+    [FromQuery] DateTime date,
+    [FromQuery] int? bookingId)
         {
-            if (roomIds == null || !roomIds.Any())
-                return BadRequest("roomIds is required");
-
             var startOfDay = date.Date;
             var endOfDay = startOfDay.AddDays(1);
-
-            // 👉 load rooms để lấy buffer
-            var rooms = await _context.MeetingRooms
-                .Where(r => roomIds.Contains(r.Id))
-                .ToListAsync();
-
-            // 👉 map buffer theo room
-            var roomBufferMap = rooms.ToDictionary(r => r.Id, r => r.BufferMinutes);
 
             var bookings = await _context.Bookings
                 .Include(b => b.MeetingRoom)
                 .Where(b => roomIds.Contains(b.MeetingRoomId) &&
                             b.StartTime >= startOfDay &&
                             b.StartTime < endOfDay &&
-                            b.Status != "Cancelled")
+                            b.Status == "Booked" && // ✅ FIX
+                            (!bookingId.HasValue || b.Id != bookingId)) // ✅ FIX
                 .Select(b => new
                 {
                     b.MeetingRoomId,
-                    StartTime = b.StartTime,
-                    EndTime = b.EndTime,
+                    b.StartTime,
+                    b.EndTime,
                     Buffer = b.MeetingRoom.BufferMinutes,
-                    Location = b.MeetingRoom.Location,
-                    Capacity = b.MeetingRoom.Capacity
+                    b.MeetingRoom.Location,
+                    b.MeetingRoom.Capacity
                 })
                 .ToListAsync();
 
-            // 👉 APPLY BUFFER SAU (quan trọng)
-            var result = bookings.Select(b =>
+            var result = bookings.Select(b => new
             {
-                var buffer = b.Buffer;
-
-                return new
-                {
-                    b.MeetingRoomId,
-                    StartTime = b.StartTime.AddMinutes(-buffer),
-                    EndTime = b.EndTime.AddMinutes(buffer),
-                    b.Location,
-                    b.Capacity
-                };
+                b.MeetingRoomId,
+                StartTime = b.StartTime.AddMinutes(-b.Buffer),
+                EndTime = b.EndTime.AddMinutes(b.Buffer),
+                b.Location,
+                b.Capacity
             });
 
             return Ok(result);
@@ -411,12 +397,34 @@ namespace MeetingRoomBooking.Controllers
             var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
 
             var booking = await _context.Bookings.FindAsync(id);
-            if (booking == null) return NotFound("Không tìm thấy booking");
+            if (booking == null)
+                return NotFound("Không tìm thấy booking");
 
+            // 🔒 chỉ owner mới được huỷ
             if (booking.UserId != userId)
                 return StatusCode(403, "Không có quyền");
 
+            // ❌ không cho huỷ nếu đã completed
+            if (booking.Status == "Completed")
+                return BadRequest("Không thể huỷ booking đã hoàn thành");
+
+            // ❌ nếu đã huỷ rồi
+            if (booking.Status == "Cancelled")
+                return BadRequest("Booking đã được huỷ trước đó");
+
+            // ❌ chỉ cho huỷ Pending + Booked
+            if (booking.Status != "Pending" && booking.Status != "Booked")
+                return BadRequest("Trạng thái không hợp lệ để huỷ");
+
+            // ⏰ 🔥 CHECK 3 TIẾNG
+            var diffHours = (booking.StartTime - DateTime.Now).TotalHours;
+
+            if (diffHours < 3)
+                return BadRequest("Chỉ được huỷ trước 3 tiếng so với giờ bắt đầu");
+
+            // ✅ hợp lệ → huỷ
             booking.Status = "Cancelled";
+
             await _context.SaveChangesAsync();
 
             return Ok(new { message = "Hủy thành công" });
@@ -428,7 +436,8 @@ namespace MeetingRoomBooking.Controllers
         public async Task<IActionResult> UpdateBooking(int id, [FromBody] UpdateBookingDto dto)
         {
             var booking = await _context.Bookings.FindAsync(id);
-            if (booking == null) return NotFound(new { message = "Booking not found" });
+            if (booking == null)
+                return NotFound(new { message = "Booking not found" });
 
             if (booking.Status == "Completed")
                 return BadRequest(new { message = "Cannot edit completed booking" });
@@ -436,24 +445,42 @@ namespace MeetingRoomBooking.Controllers
             if (dto.EndTime <= dto.StartTime)
                 return BadRequest(new { message = "Invalid time" });
 
+            // ===== UPDATE STATUS =====
             if (!string.IsNullOrEmpty(dto.Status))
             {
-                var allowed = new[] { "Booked", "Cancelled" };
+                var allowed = new[] { "Pending", "Booked", "Cancelled" };
+
                 if (!allowed.Contains(dto.Status))
                     return BadRequest(new { message = "Invalid status" });
+
+                // 🔥 nếu chuyển sang Booked → check conflict
+                if (dto.Status == "Booked")
+                {
+                    var isConflict = await _context.Bookings.AnyAsync(b =>
+                        b.Id != id &&
+                        b.MeetingRoomId == dto.MeetingRoomId &&
+                        b.Status == "Booked" &&
+                        dto.StartTime < b.EndTime &&
+                        dto.EndTime > b.StartTime
+                    );
+
+                    if (isConflict)
+                        return BadRequest(new { message = "Time slot already booked" });
+                }
 
                 booking.Status = dto.Status;
             }
 
-            var isConflict = await _context.Bookings.AnyAsync(b =>
+            // ===== UPDATE TIME / ROOM =====
+            var isConflictTime = await _context.Bookings.AnyAsync(b =>
                 b.Id != id &&
                 b.MeetingRoomId == dto.MeetingRoomId &&
-                b.Status != "Cancelled" &&
+                b.Status == "Booked" &&
                 dto.StartTime < b.EndTime &&
                 dto.EndTime > b.StartTime
             );
 
-            if (isConflict)
+            if (isConflictTime)
                 return BadRequest(new { message = "Time slot already booked" });
 
             booking.MeetingRoomId = dto.MeetingRoomId;
@@ -464,7 +491,53 @@ namespace MeetingRoomBooking.Controllers
 
             return Ok(new { message = "Updated successfully" });
         }
+        //User update
+        [HttpPut("user/{id}")]
+        [Authorize]
+        public async Task<IActionResult> UserUpdateBooking(int id, UserUpdateBookingDto dto)
+        {
+            var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
 
+            var booking = await _context.Bookings.FindAsync(id);
+            if (booking == null)
+                return NotFound(new { message = "Booking not found" });
+
+            // 🔐 Check quyền
+            if (booking.UserId != userId)
+                return StatusCode(403, new { message = "No permission" });
+
+            // ❗ Chỉ cho sửa khi Pending
+            if (booking.Status != "Pending")
+                return BadRequest(new { message = "Only Pending booking can be edited" });
+
+            // ❗ Validate time
+            if (dto.EndTime <= dto.StartTime)
+                return BadRequest(new { message = "Invalid time" });
+
+            // ===== CHECK CONFLICT =====
+            var isConflict = await _context.Bookings.AnyAsync(b =>
+                b.Id != id && // loại chính nó
+                b.MeetingRoomId == dto.MeetingRoomId &&
+                b.Status == "Booked" && // chỉ conflict với booking đã được duyệt
+                dto.StartTime < b.EndTime &&
+                dto.EndTime > b.StartTime
+            );
+
+            if (isConflict)
+                return BadRequest(new { message = "Time slot already booked" });
+
+            // ===== UPDATE =====
+            booking.MeetingRoomId = dto.MeetingRoomId;
+            booking.StartTime = dto.StartTime;
+            booking.EndTime = dto.EndTime;
+
+            // ❌ KHÔNG cho user đổi status
+            // booking.Status = dto.Status; // không có dòng này
+
+            await _context.SaveChangesAsync();
+
+            return Ok(new { message = "Updated successfully" });
+        }
         // DELETE
         [Authorize(Roles = "Admin")]
         [HttpDelete("{id}")]

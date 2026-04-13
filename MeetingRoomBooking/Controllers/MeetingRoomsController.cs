@@ -22,7 +22,9 @@ namespace MeetingRoomBooking.Controllers
         [HttpGet]
         public async Task<IActionResult> GetRooms()
         {
-            var rooms = await _context.MeetingRooms.ToListAsync();
+            var rooms = await _context.MeetingRooms
+                .OrderBy(r => r.Name.ToLower()) 
+                .ToListAsync();
 
             return Ok(ApiResponseHelper.Success(rooms, "Get meeting rooms successfully"));
         }

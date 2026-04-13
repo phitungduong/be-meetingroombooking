@@ -16,7 +16,7 @@
 
         public DateTime EndTime { get; set; }
 
-        public string Status { get; set; } // Booked, Cancelled
+        public string Status { get; set; } 
 
         public DateTime CreatedAt { get; set; }
     }
