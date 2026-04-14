@@ -352,43 +352,19 @@ namespace MeetingRoomBooking.Controllers
         // My bookings (paging)
         [HttpGet("my-bookings")]
         [Authorize]
-        public async Task<IActionResult> GetMyBookings(int page = 1, int pageSize = 10)
+        public async Task<IActionResult> GetMyBookings()
         {
             var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
             if (userId == null) return Unauthorized();
 
-            var now = DateTime.Now;
-
-            await _context.Bookings
-                .Where(b => b.UserId == userId &&
-                            b.Status != "Completed" &&
-                            b.EndTime < now)
-                .ExecuteUpdateAsync(setters =>
-                    setters.SetProperty(b => b.Status, "Completed"));
-
-            var query = _context.Bookings
-                .Include(b => b.MeetingRoom)
-                .Include(b => b.User)
+            var bookings = await _context.Bookings
                 .Where(b => b.UserId == userId)
-                .OrderByDescending(b => b.StartTime);
-
-            var totalItems = await query.CountAsync();
-
-            var items = await query
-                .Skip((page - 1) * pageSize)
-                .Take(pageSize)
+                .Include(b => b.MeetingRoom)
+                .OrderByDescending(b => b.StartTime)
                 .ToListAsync();
 
-            return Ok(new
-            {
-                currentPage = page,
-                pageSize,
-                totalItems,
-                totalPages = (int)Math.Ceiling(totalItems / (double)pageSize),
-                items
-            });
+            return Ok(bookings); // ✅ array thuần
         }
-
         // Cancel booking
         [HttpPut("cancel/{id}")]
         [Authorize]
