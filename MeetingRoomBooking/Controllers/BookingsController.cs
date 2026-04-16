@@ -5,6 +5,7 @@ using MeetingRoomBooking.Data;
 using MeetingRoomBooking.Models;
 using MeetingRoomBooking.Helpers;
 using MeetingRoomBooking.DTO;
+using System.Linq;
 
 namespace MeetingRoomBooking.Controllers
 {
@@ -19,18 +20,55 @@ namespace MeetingRoomBooking.Controllers
             _context = context;
         }
 
-        // GET: api/bookings
         [Authorize]
-        [HttpGet]
-        public async Task<IActionResult> GetBookings()
-        {
-            var bookings = await _context.Bookings
-                .Include(b => b.MeetingRoom)
-                .Include(b => b.User)
-                .ToListAsync();
+[HttpGet]
+public async Task<IActionResult> GetBookings()
+{
+    var now = DateTime.Now;
+
+    var bookings = await _context.Bookings
+        .Include(b => b.MeetingRoom)
+        .Include(b => b.User)
+        .ToListAsync();
+
+            foreach (var b in bookings)
+            {
+                // ❌ bỏ phụ thuộc status cũ
+
+                if (b.Status == "Pending" && b.StartTime < now)
+                {
+                    b.Status = "Expired";
+                }
+                else if (b.StartTime > now)
+                {
+                    b.Status = "Booked";
+                }
+                else if (b.StartTime <= now && b.EndTime >= now)
+                {
+                    b.Status = "Ongoing";
+                }
+                else if (b.EndTime < now)
+                {
+                    b.Status = "Completed";
+                }
+            }
+
+            // await _context.SaveChangesAsync(); 
+            var result = bookings.Select(b => new
+            {
+                b.Id,
+                b.StartTime,
+                b.EndTime,
+                Status =
+        (b.Status == "Pending" && b.StartTime < now) ? "Expired" :
+        (b.StartTime > now) ? "Booked" :
+        (b.StartTime <= now && b.EndTime >= now) ? "Ongoing" :
+        "Completed",
+                Room = b.MeetingRoom.Name
+            });
 
             return Ok(ApiResponseHelper.Success(bookings, "Get bookings successfully"));
-        }
+}
 
         // GET: api/bookings/{id}
         [Authorize]
@@ -357,13 +395,35 @@ namespace MeetingRoomBooking.Controllers
             var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
             if (userId == null) return Unauthorized();
 
+            var now = DateTime.Now;
+
             var bookings = await _context.Bookings
                 .Where(b => b.UserId == userId)
                 .Include(b => b.MeetingRoom)
                 .OrderByDescending(b => b.StartTime)
                 .ToListAsync();
 
-            return Ok(bookings); // ✅ array thuần
+            foreach (var b in bookings)
+            {
+                if (b.Status == "Pending" && b.StartTime < now)
+                {
+                    b.Status = "Expired";
+                }
+                else if (b.StartTime > now)
+                {
+                    b.Status = "Booked";
+                }
+                else if (b.StartTime <= now && b.EndTime >= now)
+                {
+                    b.Status = "Ongoing";
+                }
+                else if (b.EndTime < now)
+                {
+                    b.Status = "Completed";
+                }
+            }
+
+            return Ok(bookings);
         }
         // Cancel booking
         [HttpPut("cancel/{id}")]
@@ -514,6 +574,95 @@ namespace MeetingRoomBooking.Controllers
 
             return Ok(new { message = "Updated successfully" });
         }
+        //bulk-confirm
+        [HttpPut("bulk-confirm")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> BulkConfirmBookings([FromBody] List<int> bookingIds)
+        {
+            if (bookingIds == null || !bookingIds.Any())
+                return BadRequest("Danh sách booking trống");
+
+            // 🔥 lấy booking được chọn
+            var selectedBookings = await _context.Bookings
+                .Where(b => bookingIds.Contains(b.Id) && b.Status == "Pending")
+                .ToListAsync();
+
+            if (!selectedBookings.Any())
+                return Ok(new { message = "Không có booking hợp lệ", updated = 0 });
+
+            // 🔥 lấy danh sách slot DISTINCT
+            var slots = selectedBookings
+                .Select(b => new { b.MeetingRoomId, b.StartTime })
+                .Distinct()
+                .ToList();
+
+            int updated = 0;
+
+            // 🔒 transaction chống race condition
+            using var transaction = await _context.Database.BeginTransactionAsync();
+
+            foreach (var slot in slots)
+            {
+                // 🔥 lấy TẤT CẢ booking cùng slot (không phụ thuộc selected)
+                var allConflicts = await _context.Bookings
+                    .Where(b => b.MeetingRoomId == slot.MeetingRoomId
+                        && b.StartTime == slot.StartTime
+                        && b.Status == "Pending")
+                    .OrderBy(b => b.CreatedAt)
+                    .ToListAsync();
+
+                if (!allConflicts.Any()) continue;
+
+                var winner = allConflicts.First();
+
+                foreach (var b in allConflicts)
+                {
+                    if (b.Id == winner.Id)
+                    {
+                        b.Status = "Booked";
+                    }
+                    else
+                    {
+                        b.Status = "Rejected";
+                    }
+
+                    updated++;
+                }
+            }
+
+            await _context.SaveChangesAsync();
+            await transaction.CommitAsync();
+
+            return Ok(new
+            {
+                message = "Cập nhật thành công",
+                updated
+            });
+        }
+        //
+        [HttpDelete("bulk-delete")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> BulkDeleteBookings([FromBody] List<int> bookingIds)
+        {
+            if (bookingIds == null || !bookingIds.Any())
+                return BadRequest("Danh sách trống");
+
+            var bookings = await _context.Bookings
+                .Where(b => bookingIds.Contains(b.Id))
+                .ToListAsync();
+
+            if (!bookings.Any())
+                return NotFound("Không tìm thấy booking");
+
+            _context.Bookings.RemoveRange(bookings);
+            await _context.SaveChangesAsync();
+
+            return Ok(new
+            {
+                message = "Xóa thành công",
+                deleted = bookings.Count
+            });
+        }
         // DELETE
         [Authorize(Roles = "Admin")]
         [HttpDelete("{id}")]
@@ -529,5 +678,6 @@ namespace MeetingRoomBooking.Controllers
 
             return Ok(ApiResponseHelper.Success<string>(null, "Deleted successfully"));
         }
+
     }
 }

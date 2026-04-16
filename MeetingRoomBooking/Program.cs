@@ -21,7 +21,7 @@ namespace MeetingRoomBooking
             var jwtSettings = builder.Configuration.GetSection("Jwt");
 
             // Controllers
-            builder.Services.AddControllers();
+            builder.Services.AddControllers();      
 
             // DbContext
             builder.Services.AddDbContext<AppDbContext>(options =>
