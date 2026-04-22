@@ -1,6 +1,6 @@
 {
   "Version": 1,
-  "Hash": "BpxlFgk2eBuO10BCZXAqxvR6Vx2ZvN35Y9g0FI1/fZo=",
+  "Hash": "VQbmKOZtr+r0ko4GP54ld0g/ABo7Bf5LjM824Z/ndiQ=",
   "Source": "MeetingRoomBooking",
   "BasePath": "_content/MeetingRoomBooking",
   "Mode": "Default",
@@ -47,10 +47,10 @@
       "OriginalItemSpec": "C:\\Users\\admin\\.nuget\\packages\\microsoft.aspnetcore.components.quickgrid\\8.0.23\\staticwebassets\\QuickGrid.razor.js"
     },
     {
-      "Identity": "C:\\Users\\angular\\MeetingRoomBooking\\MeetingRoomBooking\\obj\\Debug\\net8.0\\scopedcss\\bundle\\MeetingRoomBooking.styles.css",
+      "Identity": "C:\\Users\\angular\\be-meetingroombooking\\MeetingRoomBooking\\obj\\Debug\\net8.0\\scopedcss\\bundle\\MeetingRoomBooking.styles.css",
       "SourceId": "MeetingRoomBooking",
       "SourceType": "Computed",
-      "ContentRoot": "C:\\Users\\angular\\MeetingRoomBooking\\MeetingRoomBooking\\obj\\Debug\\net8.0\\scopedcss\\bundle\\",
+      "ContentRoot": "C:\\Users\\angular\\be-meetingroombooking\\MeetingRoomBooking\\obj\\Debug\\net8.0\\scopedcss\\bundle\\",
       "BasePath": "_content/MeetingRoomBooking",
       "RelativePath": "MeetingRoomBooking.styles.css",
       "AssetKind": "All",
@@ -63,7 +63,7 @@
       "AssetTraitValue": "ApplicationBundle",
       "CopyToOutputDirectory": "Never",
       "CopyToPublishDirectory": "PreserveNewest",
-      "OriginalItemSpec": "C:\\Users\\angular\\MeetingRoomBooking\\MeetingRoomBooking\\obj\\Debug\\net8.0\\scopedcss\\bundle\\MeetingRoomBooking.styles.css"
+      "OriginalItemSpec": "C:\\Users\\angular\\be-meetingroombooking\\MeetingRoomBooking\\obj\\Debug\\net8.0\\scopedcss\\bundle\\MeetingRoomBooking.styles.css"
     }
   ]
 }

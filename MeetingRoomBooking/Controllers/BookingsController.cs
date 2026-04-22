@@ -6,6 +6,9 @@ using MeetingRoomBooking.Models;
 using MeetingRoomBooking.Helpers;
 using MeetingRoomBooking.DTO;
 using System.Linq;
+using Hangfire;
+using System.Security.Claims;
+
 
 namespace MeetingRoomBooking.Controllers
 {
@@ -14,61 +17,90 @@ namespace MeetingRoomBooking.Controllers
     public class BookingsController : ControllerBase
     {
         private readonly AppDbContext _context;
+        private readonly EmailService _emailService;
 
-        public BookingsController(AppDbContext context)
+        public BookingsController(AppDbContext context, EmailService emailService)
         {
             _context = context;
+            _emailService = emailService;
         }
 
         [Authorize]
-[HttpGet]
-public async Task<IActionResult> GetBookings()
-{
-    var now = DateTime.Now;
+        [HttpGet]
+        public async Task<IActionResult> GetBookings()
+        {
+            var now = DateTime.Now;
 
-    var bookings = await _context.Bookings
-        .Include(b => b.MeetingRoom)
-        .Include(b => b.User)
-        .ToListAsync();
+            var bookings = await _context.Bookings
+                .Include(b => b.MeetingRoom)
+                .Include(b => b.User)
+                .ToListAsync();
 
-            foreach (var b in bookings)
+            var result = bookings.Select(b =>
             {
-                // ❌ bỏ phụ thuộc status cũ
+                string displayStatus;
 
-                if (b.Status == "Pending" && b.StartTime < now)
-                {
-                    b.Status = "Expired";
-                }
-                else if (b.StartTime > now)
-                {
-                    b.Status = "Booked";
-                }
-                else if (b.StartTime <= now && b.EndTime >= now)
-                {
-                    b.Status = "Ongoing";
-                }
-                else if (b.EndTime < now)
-                {
-                    b.Status = "Completed";
-                }
-            }
+                // ❗ ƯU TIÊN STATUS TRƯỚC
+                if (b.Status == "Cancelled")
+                    displayStatus = "Cancelled";
 
-            // await _context.SaveChangesAsync(); 
-            var result = bookings.Select(b => new
-            {
-                b.Id,
-                b.StartTime,
-                b.EndTime,
-                Status =
-        (b.Status == "Pending" && b.StartTime < now) ? "Expired" :
-        (b.StartTime > now) ? "Booked" :
-        (b.StartTime <= now && b.EndTime >= now) ? "Ongoing" :
-        "Completed",
-                Room = b.MeetingRoom.Name
+                else if (b.Status == "Rejected")
+                    displayStatus = "Rejected";
+
+                // ❗ Pending xử lý riêng
+                else if (b.Status == "Pending")
+                {
+                    if (b.StartTime < now)
+                        displayStatus = "Expired"; // hết hạn
+                    else
+                        displayStatus = "Pending";
+                }
+
+                // ❗ Booking đã được duyệt (Booked)
+                else if (b.Status == "Booked")
+                {
+                    if (b.StartTime > now)
+                        displayStatus = "Upcoming";
+                    else if (b.StartTime <= now && b.EndTime >= now)
+                        displayStatus = "Ongoing";
+                    else
+                        displayStatus = "Completed";
+                }
+
+                else
+                {
+                    displayStatus = "Unknown";
+                }
+
+                return new
+                {
+                    b.Id,
+                    b.StartTime,
+                    b.EndTime,
+                    b.Status,
+                    DisplayStatus = displayStatus,
+
+                    MeetingRoomId = b.MeetingRoomId,
+
+                    MeetingRoom = new
+                    {
+                        b.MeetingRoom.Name,
+                        b.MeetingRoom.Capacity,
+                        b.MeetingRoom.Location
+                    },
+
+                    User = new
+                    {
+                        b.User.FullName,
+                        b.User.Email
+                    },
+
+                    b.CreatedAt
+                };
             });
 
-            return Ok(ApiResponseHelper.Success(bookings, "Get bookings successfully"));
-}
+            return Ok(ApiResponseHelper.Success(result, "Get bookings successfully"));
+        }
 
         // GET: api/bookings/{id}
         [Authorize]
@@ -189,71 +221,59 @@ public async Task<IActionResult> GetBookings()
         [HttpPost]
         public async Task<IActionResult> PostBooking(CreateBookingDto dto)
         {
-            using var transaction = await _context.Database
-                .BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
+            var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            var email = User.FindFirst(ClaimTypes.Email)?.Value;
 
-            var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-            var now = DateTime.Now;
-            var today = now.Date;
-
-            if (userId == null)
+            if (string.IsNullOrEmpty(userId))
                 return Unauthorized(ApiResponseHelper.Fail<string>("User not found"));
 
-            // ===== ROOM IDS =====
-            var roomIds = new List<int>();
+            if (dto.StartTime == default || dto.EndTime == default)
+                return BadRequest(ApiResponseHelper.Fail<string>("Invalid time"));
 
-            if (dto.MeetingRoomIds?.Any() == true)
-                roomIds = dto.MeetingRoomIds;
-            else if (dto.MeetingRoomId.HasValue)
-                roomIds.Add(dto.MeetingRoomId.Value);
-            else
+            var now = DateTime.Now;
+
+            var roomIds = dto.MeetingRoomIds?.Any() == true
+                ? dto.MeetingRoomIds
+                : dto.MeetingRoomId.HasValue
+                    ? new List<int> { dto.MeetingRoomId.Value }
+                    : null;
+
+            if (roomIds == null || roomIds.Count == 0)
                 return BadRequest(ApiResponseHelper.Fail<string>("No room selected"));
 
-            // ===== TIME =====
-            var start = dto.StartTime.Kind == DateTimeKind.Utc
-                ? dto.StartTime.ToLocalTime()
-                : DateTime.SpecifyKind(dto.StartTime, DateTimeKind.Local);
+            var start = dto.StartTime.Kind == DateTimeKind.Utc ? dto.StartTime.ToLocalTime() : dto.StartTime;
+            var end = dto.EndTime.Kind == DateTimeKind.Utc ? dto.EndTime.ToLocalTime() : dto.EndTime;
 
-            var end = dto.EndTime.Kind == DateTimeKind.Utc
-                ? dto.EndTime.ToLocalTime()
-                : DateTime.SpecifyKind(dto.EndTime, DateTimeKind.Local);
+            start = DateTime.SpecifyKind(start, DateTimeKind.Local);
+            end = DateTime.SpecifyKind(end, DateTimeKind.Local);
 
-            // ===== VALIDATE =====
             if (start < now)
-                return BadRequest(ApiResponseHelper.Fail<string>("Không thể đặt phòng trong quá khứ"));
-
-            if (start.Date < today)
-                return BadRequest(ApiResponseHelper.Fail<string>("Không thể đặt ngày đã qua"));
+                return BadRequest("Cannot book past time");
 
             if (start >= end)
-                return BadRequest(ApiResponseHelper.Fail<string>("EndTime phải lớn hơn StartTime"));
+                return BadRequest("Invalid time range");
 
-            // ===== GET ROOMS =====
+            // ===== ROOMS =====
             var rooms = await _context.MeetingRooms
                 .Where(r => roomIds.Contains(r.Id))
                 .ToListAsync();
 
             if (rooms.Count != roomIds.Count)
-                return NotFound(ApiResponseHelper.Fail<string>("Room không tồn tại"));
+                return NotFound("Room not found");
 
             if (rooms.Any(r => !r.IsActive))
-                return BadRequest(ApiResponseHelper.Fail<string>("Có phòng không khả dụng"));
+                return BadRequest("Room inactive");
 
-            // ===== BUFFER =====
-            var buffer = rooms.First().BufferMinutes;
-            var startWithBuffer = start.AddMinutes(-buffer);
-            var endWithBuffer = end.AddMinutes(buffer);
-
-            // ===== OVERLAP =====
+            // ===== CONFLICT CHECK =====
             var isConflict = await _context.Bookings.AnyAsync(b =>
-                roomIds.Contains(b.MeetingRoomId) &&
-                b.Status == "Booked" &&
-                b.StartTime < endWithBuffer &&
-                b.EndTime > startWithBuffer
+                roomIds.Contains(b.MeetingRoomId)
+                && b.Status == "Booked"
+                && b.StartTime < end
+                && b.EndTime > start
             );
 
             if (isConflict)
-                return BadRequest(ApiResponseHelper.Fail<string>("Trùng lịch booking"));
+                return BadRequest("Time slot already booked");
 
             // ===== CREATE =====
             var bookings = roomIds.Select(roomId => new Booking
@@ -267,18 +287,30 @@ public async Task<IActionResult> GetBookings()
             }).ToList();
 
             _context.Bookings.AddRange(bookings);
+            await _context.SaveChangesAsync();
 
-            try
+            // ===== EMAIL (HANGFIRE - NON BLOCKING) =====
+            foreach (var booking in bookings)
             {
-                await _context.SaveChangesAsync();
-                await transaction.CommitAsync();
-            }
-            catch (DbUpdateException)
-            {
-                return BadRequest(ApiResponseHelper.Fail<string>("Đã bị đặt trước"));
+                var roomName = rooms.First(r => r.Id == booking.MeetingRoomId).Name;
+
+                var body = $@"
+            <h3>Booking Created</h3>
+            <p>Room: {roomName}</p>
+            <p>Time: {booking.StartTime:HH:mm} - {booking.EndTime:HH:mm}</p>
+            <p>Status: Pending</p>
+        ";
+
+                BackgroundJob.Enqueue(() =>
+                    _emailService.SendAsync(
+                        email,
+                        "Booking Created",
+                        body
+                    )
+                );
             }
 
-            return Ok(ApiResponseHelper.Success(bookings, "Booking created successfully"));
+            return Ok(ApiResponseHelper.Success(bookings, "Created"));
         }
 
         // GET bookings by 1 room 
@@ -403,25 +435,7 @@ public async Task<IActionResult> GetBookings()
                 .OrderByDescending(b => b.StartTime)
                 .ToListAsync();
 
-            foreach (var b in bookings)
-            {
-                if (b.Status == "Pending" && b.StartTime < now)
-                {
-                    b.Status = "Expired";
-                }
-                else if (b.StartTime > now)
-                {
-                    b.Status = "Booked";
-                }
-                else if (b.StartTime <= now && b.EndTime >= now)
-                {
-                    b.Status = "Ongoing";
-                }
-                else if (b.EndTime < now)
-                {
-                    b.Status = "Completed";
-                }
-            }
+            
 
             return Ok(bookings);
         }
@@ -582,7 +596,9 @@ public async Task<IActionResult> GetBookings()
             if (bookingIds == null || !bookingIds.Any())
                 return BadRequest("Danh sách booking trống");
 
-            // 🔥 lấy booking được chọn
+            using var transaction = await _context.Database.BeginTransactionAsync();
+
+            // 🔥 lấy tất cả booking được chọn
             var selectedBookings = await _context.Bookings
                 .Where(b => bookingIds.Contains(b.Id) && b.Status == "Pending")
                 .ToListAsync();
@@ -590,43 +606,40 @@ public async Task<IActionResult> GetBookings()
             if (!selectedBookings.Any())
                 return Ok(new { message = "Không có booking hợp lệ", updated = 0 });
 
-            // 🔥 lấy danh sách slot DISTINCT
+            // 🔥 lấy slot cần xử lý
             var slots = selectedBookings
-                .Select(b => new { b.MeetingRoomId, b.StartTime })
+                .Select(b => new { b.MeetingRoomId, b.StartTime, b.EndTime })
                 .Distinct()
                 .ToList();
 
             int updated = 0;
 
-            // 🔒 transaction chống race condition
-            using var transaction = await _context.Database.BeginTransactionAsync();
-
             foreach (var slot in slots)
             {
-                // 🔥 lấy TẤT CẢ booking cùng slot (không phụ thuộc selected)
-                var allConflicts = await _context.Bookings
+                // 🔥 LẤY TOÀN BỘ booking trong slot (QUAN TRỌNG NHẤT)
+                var allInSlot = await _context.Bookings
                     .Where(b => b.MeetingRoomId == slot.MeetingRoomId
                         && b.StartTime == slot.StartTime
-                        && b.Status == "Pending")
+                        && b.EndTime == slot.EndTime
+                        && (b.Status == "Pending" || b.Status == "Booked"))
                     .OrderBy(b => b.CreatedAt)
                     .ToListAsync();
 
-                if (!allConflicts.Any()) continue;
+                if (!allInSlot.Any()) continue;
 
-                var winner = allConflicts.First();
+                var winner = allInSlot.First();
 
-                foreach (var b in allConflicts)
+                foreach (var b in allInSlot)
                 {
-                    if (b.Id == winner.Id)
+                    if (b.Status == "Pending")
                     {
-                        b.Status = "Booked";
-                    }
-                    else
-                    {
-                        b.Status = "Rejected";
-                    }
+                        if (b.Id == winner.Id)
+                            b.Status = "Booked";
+                        else
+                            b.Status = "Rejected";
 
-                    updated++;
+                        updated++;
+                    }
                 }
             }
 
@@ -635,7 +648,7 @@ public async Task<IActionResult> GetBookings()
 
             return Ok(new
             {
-                message = "Cập nhật thành công",
+                message = "Bulk confirm hoàn tất (auto reject full conflict)",
                 updated
             });
         }

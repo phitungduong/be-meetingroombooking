@@ -8,7 +8,8 @@ using MeetingRoomBooking.Seed;
 using System.Text;
 using System.Security.Claims;
 using Microsoft.OpenApi.Models;
-
+using MeetingRoomBooking.Settings;
+using Hangfire;
 
 namespace MeetingRoomBooking
 {
@@ -20,22 +21,20 @@ namespace MeetingRoomBooking
 
             var jwtSettings = builder.Configuration.GetSection("Jwt");
 
-            // Controllers
-            builder.Services.AddControllers();      
+            // ================= CONTROLLERS =================
+            builder.Services.AddControllers();
 
-            // DbContext
+            // ================= DB =================
             builder.Services.AddDbContext<AppDbContext>(options =>
                 options.UseSqlServer(
                     builder.Configuration.GetConnectionString("DefaultConnection")));
 
-            
-
-            // Identity
+            // ================= IDENTITY =================
             builder.Services.AddIdentity<ApplicationUser, IdentityRole>()
                 .AddEntityFrameworkStores<AppDbContext>()
                 .AddDefaultTokenProviders();
 
-            // JWT Authentication 
+            // ================= JWT =================
             builder.Services.AddAuthentication(options =>
             {
                 options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
@@ -60,7 +59,7 @@ namespace MeetingRoomBooking
                 };
             });
 
-            // Swagger + JWT
+            // ================= SWAGGER =================
             builder.Services.AddEndpointsApiExplorer();
             builder.Services.AddSwaggerGen(options =>
             {
@@ -90,7 +89,24 @@ namespace MeetingRoomBooking
                 });
             });
 
-            // CORS
+            // ================= EMAIL =================
+            builder.Services.Configure<EmailSettings>(
+                builder.Configuration.GetSection("EmailSettings"));
+
+            builder.Services.AddScoped<EmailService>();
+
+            // ================= HANGFIRE =================
+            builder.Services.AddHangfire(config =>
+                config.UseSqlServerStorage(
+                    builder.Configuration.GetConnectionString("DefaultConnection"))
+            );
+
+            builder.Services.AddHangfireServer(options =>
+            {
+                options.WorkerCount = 5; // xử lý email song song tốt hơn
+            });
+
+            // ================= CORS =================
             builder.Services.AddCors(options =>
             {
                 options.AddPolicy("AllowAngular", policy =>
@@ -103,13 +119,14 @@ namespace MeetingRoomBooking
 
             var app = builder.Build();
 
-            // Swagger
+            // ================= SWAGGER =================
             if (app.Environment.IsDevelopment())
             {
                 app.UseSwagger();
                 app.UseSwaggerUI();
             }
 
+            // ================= MIDDLEWARE =================
             app.UseCors("AllowAngular");
 
             app.UseHttpsRedirection();
@@ -119,7 +136,10 @@ namespace MeetingRoomBooking
 
             app.MapControllers();
 
-            // Seed Role
+            // ================= HANGFIRE DASHBOARD =================
+            app.UseHangfireDashboard("/hangfire");
+
+            // ================= SEED ROLE =================
             using (var scope = app.Services.CreateScope())
             {
                 var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();

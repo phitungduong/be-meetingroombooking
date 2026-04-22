@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "C:\\Users\\angular\\MeetingRoomBooking\\MeetingRoomBooking\\MeetingRoomBooking.csproj": {}
+    "C:\\Users\\angular\\be-meetingroombooking\\MeetingRoomBooking\\MeetingRoomBooking.csproj": {}
   },
   "projects": {
-    "C:\\Users\\angular\\MeetingRoomBooking\\MeetingRoomBooking\\MeetingRoomBooking.csproj": {
+    "C:\\Users\\angular\\be-meetingroombooking\\MeetingRoomBooking\\MeetingRoomBooking.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Users\\angular\\MeetingRoomBooking\\MeetingRoomBooking\\MeetingRoomBooking.csproj",
+        "projectUniqueName": "C:\\Users\\angular\\be-meetingroombooking\\MeetingRoomBooking\\MeetingRoomBooking.csproj",
         "projectName": "MeetingRoomBooking",
-        "projectPath": "C:\\Users\\angular\\MeetingRoomBooking\\MeetingRoomBooking\\MeetingRoomBooking.csproj",
+        "projectPath": "C:\\Users\\angular\\be-meetingroombooking\\MeetingRoomBooking\\MeetingRoomBooking.csproj",
         "packagesPath": "C:\\Users\\admin\\.nuget\\packages\\",
-        "outputPath": "C:\\Users\\angular\\MeetingRoomBooking\\MeetingRoomBooking\\obj\\",
+        "outputPath": "C:\\Users\\angular\\be-meetingroombooking\\MeetingRoomBooking\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "C:\\Users\\admin\\AppData\\Roaming\\NuGet\\NuGet.Config",
@@ -40,6 +40,22 @@
         "net8.0": {
           "targetAlias": "net8.0",
           "dependencies": {
+            "Hangfire": {
+              "target": "Package",
+              "version": "[1.8.23, )"
+            },
+            "Hangfire.AspNetCore": {
+              "target": "Package",
+              "version": "[1.8.23, )"
+            },
+            "Hangfire.SqlServer": {
+              "target": "Package",
+              "version": "[1.8.23, )"
+            },
+            "MailKit": {
+              "target": "Package",
+              "version": "[4.16.0, )"
+            },
             "Microsoft.AspNetCore.Authentication.JwtBearer": {
               "target": "Package",
               "version": "[8.0.25, )"
